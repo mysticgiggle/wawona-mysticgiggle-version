@@ -1,0 +1,77 @@
+members = ["."]
+
+[package]
+name = "wawona"
+version = "0.2.1"
+edition = "2021"
+
+[lints.rust]
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+
+
+
+[dependencies]
+thiserror = "2.0.17"
+anyhow = "1.0.100"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["chrono", "local-time"] }
+bitflags = "2.4"
+chrono = "0.4"
+libc = "0.2.180"
+ssh2 = { version = "0.9", default-features = false, optional = true }
+ash = "0.38"
+libloading = "0.8"
+getrandom = "0.2"
+nix = "0.30"
+memoffset = "0.9"
+clap = { version = "4", features = ["color", "derive", "env"] }
+serde_json = "1.0"
+
+uniffi = { version = "0.30.0", features = ["cli"] }
+
+# Core Wayland
+wayland-server = "0.31.11"
+wayland-client = "0.31.12"
+wayland-backend = "0.3.12"
+
+# Protocol bindings (pre-generated, no custom generator needed)
+wayland-protocols = { version = "0.32.10", features = ["server", "client", "staging", "unstable"] }
+wayland-protocols-wlr = { version = "0.3.10", features = ["server", "client"] }
+wayland-protocols-misc = { version = "0.3.10", features = ["server", "client"] }
+wayland-protocols-plasma = { version = "0.3.10", features = ["server", "client"] }
+wayland-protocols-hyprland = { version = "1.2.0", features = ["server", "client"] }
+wayland-wf-shell = "0.1.0"
+
+# XKB for keymap generation (FFI to libxkbcommon, already ported to macOS)
+xkbcommon = { version = "0.8", features = ["wayland"] }
+
+
+# Code generation for custom protocols only
+wayland-scanner = "0.31.8"
+tempfile = "3.25.0"
+
+# waypipe: integrated as optional dependency for unified static library
+waypipe = { path = "./waypipe", optional = true, default-features = false, features = ["lz4", "zstd", "video"] }
+
+[build-dependencies]
+uniffi = { version = "0.30.0", features = ["build"] }
+wayland-scanner = "0.31.8"
+
+
+
+[features]
+default = ["desktop-protocols"]
+# Desktop-only Wayland protocols (DRM, XWayland, screen capture, session lock).
+# Disable for App Store builds: `--no-default-features`
+desktop-protocols = []
+# Per-frame trace logging (SurfaceCommit, buffer, damage, frame callbacks).
+# Enable for debugging: `--features verbose-logs`
+verbose-logs = []
+
+# Enable in-process waypipe integration
+waypipe = ["dep:waypipe"]
+# Enable waypipe with static libssh2 transport (iOS/Android: no subprocess spawning)
+waypipe-ssh = ["waypipe", "dep:ssh2"]

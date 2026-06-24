@@ -1,0 +1,112 @@
+# Assembles a complete Cargo workspace source tree for crate2nix.
+#
+# Combines:
+# 1. Filtered wawona source (no .git, target/, Inspiration/, etc.)
+# 2. Pre-patched waypipe source injected at ./waypipe/
+# 3. Regenerated Cargo.lock that includes waypipe's sub-crates
+#
+# The Cargo.lock regeneration is critical: the original lockfile doesn't
+# include waypipe's internal path dependencies (wrap-ffmpeg, wrap-lz4, etc.)
+# Since those paths only appear after injecting waypipe, we must regenerate
+# the lock file to satisfy `cargo metadata --locked` in crate2nix.
+#
+{ pkgs, wawonaSrc, waypipeSrc, wawonaVersion, platform ? "ios" }:
+
+pkgs.stdenvNoCC.mkDerivation {
+  name = "wawona-workspace-src";
+  
+  src = wawonaSrc;
+
+  nativeBuildInputs = [ pkgs.python3 ];
+
+  dontBuild = true;
+  dontFixup = true;
+
+  installPhase = ''
+    # Copy the wawona source as the base
+    cp -r . $out
+    chmod -R u+w $out
+    
+    # Mobile platforms do not ship the standalone root binary entrypoint.
+    if [ "${platform}" != "macos" ]; then
+      echo "⚠️  Removing root binary entrypoint for mobile platform: ${platform}"
+      rm -f $out/src/main.rs
+    fi
+
+
+    # Inject pre-patched waypipe source
+    if [ -n "${toString waypipeSrc}" ]; then
+      mkdir -p $out/waypipe
+      cp -r ${waypipeSrc}/* $out/waypipe/
+      chmod -R u+w $out/waypipe
+
+      # Remove nested Cargo.lock and any stray .git to avoid workspace confusion
+      rm -f $out/waypipe/Cargo.lock
+      rm -rf $out/waypipe/.git
+
+      echo "✓ Waypipe source injected (nested lockfile removed)"
+    fi
+
+    # Patch root Cargo.toml version and Cargo.lock consistency
+    cd $out
+    ${pkgs.python3}/bin/python3 <<'EOF'
+from pathlib import Path
+import re
+
+platform = "${platform}"
+
+p = Path("Cargo.toml")
+if p.exists():
+    s = p.read_text()
+    
+    # Only restrict root binary auto-discovery for mobile platforms
+    if platform != "macos":
+        print(f"⚠️  Disabling root binaries/autobins for mobile platform: {platform}")
+        # Inject autobins = false to prevent binary auto-discovery
+        s = re.sub(r'(\[package\]\n)', r'\1autobins = false\n', s)
+        
+        # Strip all [[bin]] sections to prevent cross-compilation linking errors for unused binaries
+        lines = s.split('\n')
+        out_lines = []
+        in_bin = False
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('[[bin]]'):
+                in_bin = True
+                continue
+            if in_bin and stripped.startswith('[') and not stripped.startswith('[[bin]]'):
+                in_bin = False
+            if not in_bin:
+                out_lines.append(line)
+        s = '\n'.join(out_lines)
+    
+    s = re.sub(r'^version = .*', 'version = "${wawonaVersion}"', s, flags=re.MULTILINE)
+    
+    p.write_text(s)
+    print(f"Patched Cargo.toml version to ${wawonaVersion}")
+
+# Patch wawona version in Cargo.lock to match the patched Cargo.toml.
+# cargo metadata --locked fails when Cargo.toml version != Cargo.lock version.
+wawona_version = "${wawonaVersion}"
+lock = Path("Cargo.lock")
+if lock.exists():
+    content = lock.read_text()
+    in_wawona = False
+    lines = content.splitlines(True)
+    out = []
+    for line in lines:
+        if line.strip() == 'name = "wawona"':
+            in_wawona = True
+        elif in_wawona and line.strip().startswith("version = "):
+            out.append(f'version = "{wawona_version}"\n')
+            in_wawona = False
+            continue
+        elif in_wawona and line.strip().startswith("["):
+            in_wawona = False
+        out.append(line)
+    lock.write_text("".join(out))
+    print(f"Patched wawona version to {wawona_version} in Cargo.lock")
+
+EOF
+  '';
+}
