@@ -1,0 +1,35 @@
+name: Build Wawona (Nix - macOS)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    name: Build (macOS 26 - Nix)
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix (official installer)
+        run: |
+          curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install | sh
+
+      - name: Enable Nix in current shell
+        run: |
+          . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+          nix --version
+
+      - name: Build Wawona
+        run: |
+          . /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+          nix build .#wawona -L
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wawona-macos
+          path: result
